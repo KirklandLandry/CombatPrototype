@@ -1,8 +1,24 @@
 
 -- http://stackoverflow.com/questions/667034/simple-physics-based-movement
 
+-- TODO 
+-- do some screenshake when you get hit 
+-- circle circle collision resolution between player and enemy 
+-- assasination move (last alter hit. target and dash at them)
+-- dodge (invulnerability frames. give to player and also to enemy ai)
+-- some simple enemy ai 
+-- (keep their distance if your heath is high or their health is low)
+-- (rushdown if their health is hight or your health is low)
+-- (enter rage mode in alter state. rushdown and increased attack)
+-- player health 
+
+
 local mx, my
 local centreX, centreY
+
+local acceleration = 50
+local friction = 0.1
+local angle = 0
 
 local player = {
 x = 200,
@@ -16,11 +32,6 @@ meleeActive = false,
 meleeHitList = {}}
 
 local playerProjectiles = {}
-
-local acceleration = 50
-local friction = 0.1
-local angle = 0
-
 function newPlayerProjectile(_x,_y, _vx, _vy)
 	return {
 	x = _x, 
@@ -31,11 +42,27 @@ function newPlayerProjectile(_x,_y, _vx, _vy)
 end
 
 particles = {}
+function addParticleExplosion(_x,_y)
+	for i=1,300 do 
+		local _vx = 0 
+		while _vx == 0 do _vx = love.math.random(-400,400) end 
+		local _vy = 0 
+		while _vy == 0 do _vy = love.math.random(-400,400) end
+		table.insert(particles, {
+		x = _x, 
+		y = _y, 
+		vx = _vx,
+		vy = _vy, 
+		alpha = 255,
+		radius = 3})
+	end 
+end 
 
+local enemies = {}
 local idCounter = 0
 function newEnemy(posx, posy)
 	idCounter = idCounter + 1 
-	return {
+	table.insert(enemies, {
 	x = posx,
 	y = posy,
 	vx = 0,
@@ -46,10 +73,10 @@ function newEnemy(posx, posy)
 	currentHealth = 50,
 	alterMaxHealth = 30,
 	alterCurrentHealth = 30 
-	}
+	})
 end
 
-local enemies = {}
+
 
 
 function circleCircleCollision(x1,y1,r1, x2,y2,r2)
@@ -90,7 +117,7 @@ function loadGame()
 	centreX = screenWidth/2
 	centreY = screenHeight/2
 	
-	table.insert(enemies,newEnemy(400,400))
+	newEnemy(400,400)
 	
 	love.mouse.setVisible(false)
 end
@@ -100,6 +127,8 @@ function updateGame(dt)
 	
 	
 	if getKeyDown("g") then dt = 0.001 end 
+	
+	if getKeyPress("h") then newEnemy(love.math.random(10,screenWidth - 10), love.math.random(10,screenHeight - 10)) end 
 	
 	
 	-- update player velocity start
@@ -180,8 +209,8 @@ function updateGame(dt)
 	
 	
 	-- bullet enemy collision start 
-	for i=#playerProjectiles,1,-1 do 
-		for j=#enemies,1,-1 do 
+	for j=#enemies,1,-1 do 
+		for i=#playerProjectiles,1,-1 do 
 			if  circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
 				enemies[j].x, enemies[j].y, enemies[j].radius) then 
 				enemies[j].vx = enemies[j].vx + playerProjectiles[i].vx * dt 
@@ -195,13 +224,16 @@ function updateGame(dt)
 	-- bullet enemy collision end 
 	
 	
+	-- enemy update start
 	for i=#enemies,1,-1 do 
+		-- enemy velocity update start 
 		enemies[i].vx = enemies[i].vx - (friction * enemies[i].vx)
 		enemies[i].vy = enemies[i].vy - (friction * enemies[i].vy)
 		
 		enemies[i].x = enemies[i].x + enemies[i].vx
 		enemies[i].y = enemies[i].y + enemies[i].vy
-			
+		-- enemy velocity update end 
+		
 		-- enemy wall collision start 
 		local collisionResult = circleWallCollision(enemies[i].x, enemies[i].y, enemies[i].radius, enemies[i].vx, enemies[i].vy)
 		enemies[i].x = enemies[i].x + collisionResult.x 
@@ -228,14 +260,41 @@ function updateGame(dt)
 					enemies[i].vx = enemies[i].vx + xv
 					enemies[i].vy = enemies[i].vy + xy
 					table.insert(player.meleeHitList, enemies[i].id)
+					if enemies[i].currentHealth <= 0 then 
+						enemies[i].alterCurrentHealth = enemies[i].alterCurrentHealth - 10
+						if enemies[i].alterCurrentHealth <= 0 then 
+							addParticleExplosion(enemies[i].x, enemies[i].y)
+							table.remove(enemies, i)
+						end 
+					end
 				end 
 
 			end
 		end 
-		-- enemy player melee collision end
-		
+		-- enemy player melee collision end	
 	end
-
+	-- enemy update end
+	
+	
+	-- update particles start 
+	for i=#particles,1,-1 do 
+		-- move particles
+		particles[i].x = particles[i].x + (particles[i].vx * dt)
+		particles[i].y = particles[i].y + (particles[i].vy * dt)
+		-- lower particle alpha and remove if no longer visible 
+		particles[i].alpha = particles[i].alpha - 2 
+		--remove out of bounds particles 
+		if  particles[i].x - particles[i].radius > screenWidth or particles[i].x + particles[i].radius < 0 or 
+			particles[i].y - particles[i].radius > screenHeight or particles[i].y + particles[i].radius < 0 then  			
+			table.remove(particles, i)
+		elseif particles[i].alpha <= 0 then -- remove invisible particles 
+			table.remove(particles,i) 
+		end 
+		
+	end 
+	-- update particles end 
+	
+	
 end
 
 
@@ -249,7 +308,13 @@ function drawGame()
 	
 	for i=1,#enemies do 
 		love.graphics.circle("fill", enemies[i].x, enemies[i].y, enemies[i].radius, 32)
-		love.graphics.rectangle("fill", enemies[i].x, enemies[i].y - enemies[i].radius - 15, enemies[i].currentHealth / enemies[i].maxHealth * 100, 10)
+		if enemies[i].currentHealth > 0 then 
+			love.graphics.rectangle("fill", enemies[i].x, enemies[i].y - enemies[i].radius - 15, enemies[i].currentHealth / enemies[i].maxHealth * 100, 10)
+		else 
+			love.graphics.setColor(255,0,0)
+			love.graphics.rectangle("fill", enemies[i].x, enemies[i].y - enemies[i].radius - 15, enemies[i].alterCurrentHealth / enemies[i].alterMaxHealth * 100, 10)
+			love.graphics.setColor(255,255,255)
+		end 
 		love.graphics.rectangle("line", enemies[i].x, enemies[i].y - enemies[i].radius - 15, 100, 10)
 	end
 
@@ -257,12 +322,21 @@ function drawGame()
 		local mag = math.sqrt(math.pow(mx - player.x, 2) + math.pow(my - player.y, 2))
 		local xv = ((mx - player.x)/mag) * player.radius*2
 		local xy = ((my - player.y)/mag) * player.radius*2
+		love.graphics.setColor(255,0,0)
 		love.graphics.circle("fill", player.x + xv, player.y + xy, player.radius, 23)
+		love.graphics.setColor(255,255,255)
 		--love.graphics.circle("fill", player.x + (player.radius * math.cos(angle)), player.y + (player.radius * math.sin(angle)), player.radius, 23)
 	end
 	
+	for i=1,#particles do 
+		love.graphics.setColor(200, 200, 200, particles[i].alpha)
+		love.graphics.circle("fill", particles[i].x, particles[i].y, particles[i].radius, 5)
+		love.graphics.setColor(255,255,255)
+	end 
+	
 	--love.graphics.print(angle, 0, 10)
 	--love.graphics.print("active player projectile count: "..tostring(#playerProjectiles), 0, 10)
+	love.graphics.print("particle count: "..tostring(#particles), 0, 10)
 end
 
 
