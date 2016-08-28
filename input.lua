@@ -62,3 +62,9 @@ function love.mousepressed(x, y, button)
 		rMouseDown = true 
 	end 
 end
+
+function releaseAllInput()
+	for i=1,#keys do 
+		keys[i].down = false 
+	end 
+end

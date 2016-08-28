@@ -6,10 +6,12 @@
 -- circle circle collision resolution between player and enemy 
 -- assasination move (last alter hit. target and dash at them)
 -- dodge (invulnerability frames. give to player and also to enemy ai)
+
 -- some simple enemy ai 
 -- (keep their distance if your heath is high or their health is low)
 -- (rushdown if their health is hight or your health is low)
 -- (enter rage mode in alter state. rushdown and increased attack)
+
 -- player health 
 
 
@@ -72,16 +74,47 @@ function newEnemy(posx, posy)
 	maxHealth = 50,
 	currentHealth = 50,
 	alterMaxHealth = 30,
-	alterCurrentHealth = 30 
+	alterCurrentHealth = 30,
+	dodgeTimer = nil,
+	dodgeRadius = 60,
+	dodgeInvincibility = false
 	})
 end
 
 
-
+function magnitude(x, y)
+	return math.sqrt((x*x)+(y*y))
+end 
 
 function circleCircleCollision(x1,y1,r1, x2,y2,r2)
 	return (x2-x1)^2 + (y1-y2)^2 <= (r1+r2)^2
 end 
+
+--[[function circleCircleResolution(a, b)
+	
+	-- vector from a to b
+	local normalx = b.x - a.x
+	local normaly = b.y - a.y
+	local penetration = 0 
+	
+	-- the above failed, so we know the circles collided 
+	local d = magnitude(normalx, normaly)
+	
+	if d ~= 0 then 
+		-- the distance is the difference between radius and distance 
+		penetration = (a.radius + b.radius) - d 	
+		-- use vector from a to b divided by the magnitude of said vector as the collision normal
+		normalx = normalx/d
+		normaly = normaly/d
+		return {state = true, x = normalx, y = normaly, p = penetration}
+	else -- the circles are on top of each other  
+		penetration = a.radius 
+		normalx = 1 
+		normaly = 0 
+		return {state = true, x = normalx, y = normaly, p = penetration}
+	end
+end]]
+
 
 function circleWallCollision(x,y,radius,vx,vy)
 	local result = {
@@ -108,6 +141,19 @@ function circleWallCollision(x,y,radius,vx,vy)
 	end 
 	return result 
 end 
+
+
+
+function love.focus(f)
+  if not f then
+    --print("LOST FOCUS")
+	releaseAllInput()
+  else
+    --print("GAINED FOCUS")
+  end
+end
+
+
 
 function loadGame()
 	mx, my = love.mouse.getPosition()
@@ -211,14 +257,68 @@ function updateGame(dt)
 	-- bullet enemy collision start 
 	for j=#enemies,1,-1 do 
 		for i=#playerProjectiles,1,-1 do 
-			if  circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
+		
+
+			
+			-- if an enemy can dodge a bullet 
+			-- instead of just projecting the velocity (straight line / the path it travels)
+			-- should also project a line left and right at the edges of the projectile 
+			
+			-- instead of randomly dodging left or right, it should assess how much space it has 
+			-- if left/right isn't an option, dodge forward.
+			-- when melee-ing player it should also be able to dodge back 
+			
+			if circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
+				enemies[j].x, enemies[j].y, enemies[j].dodgeRadius) then 
+				
+				-- get the distance from the bullet to the enemy 
+				bulletToCircleX = enemies[j].x - playerProjectiles[i].x
+				bulletToCircleY = enemies[j].y - playerProjectiles[i].y
+				
+				-- temp variables for the velocity vector
+				local planeX = playerProjectiles[i].vx
+				local planeY = playerProjectiles[i].vy
+				
+				-- project the vector of the distance from the bullet to the enemy 
+				-- onto the bullet's velocity 
+				local dot = (bulletToCircleX * planeX) + (bulletToCircleY * planeY)			
+				local proj = dot / ((planeX*planeX) + (planeY*planeY))
+				local projX = playerProjectiles[i].x + (planeX * proj )
+				local projY = playerProjectiles[i].y + (planeY * proj )
+				
+				-- if the projected point is less than the enemies radius then the 
+				-- bullet is going to hit the enemy 
+				local dist = magnitude(enemies[j].x - projX, enemies[j].y - projY)
+			
+				
+				if not enemies[j].dodgeInvincibility and  dist <= enemies[j].radius then 
+					enemies[j].dodgeInvincibility = true 
+					enemies[j].dodgeTimer = Timer:new(0.12, TimerModes.single)
+					
+					if math.random(1,2) == 1 then 
+						enemies[j].vx = playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
+						enemies[j].vy = -playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
+					else 
+						enemies[j].vx = -playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
+						enemies[j].vy = playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
+					end 
+				end 
+			end 	
+
+
+			-- if a bullet hits an enemy 
+			if not enemies[j].dodgeInvincibility and 
+				circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
 				enemies[j].x, enemies[j].y, enemies[j].radius) then 
+				
 				enemies[j].vx = enemies[j].vx + playerProjectiles[i].vx * dt 
 				enemies[j].vy = enemies[j].vy + playerProjectiles[i].vy * dt
 				enemies[j].currentHealth = enemies[j].currentHealth - 5 
 				if enemies[j].currentHealth < 0 then enemies[j].currentHealth = 0 end 
 				table.remove(playerProjectiles, i)
 			end 
+
+			
 		end
 	end 
 	-- bullet enemy collision end 
@@ -233,6 +333,13 @@ function updateGame(dt)
 		enemies[i].x = enemies[i].x + enemies[i].vx
 		enemies[i].y = enemies[i].y + enemies[i].vy
 		-- enemy velocity update end 
+		
+		-- update enemy invincibility start 
+		if enemies[i].dodgeInvincibility and enemies[i].dodgeTimer ~= nil and enemies[i].dodgeTimer:isComplete(dt) then 
+			enemies[i].dodgeInvincibility = false 
+		end 
+		-- update enemy invincibility end
+		
 		
 		-- enemy wall collision start 
 		local collisionResult = circleWallCollision(enemies[i].x, enemies[i].y, enemies[i].radius, enemies[i].vx, enemies[i].vy)
@@ -297,6 +404,9 @@ function updateGame(dt)
 	
 end
 
+function resetColor()
+love.graphics.setColor(255,255,255)
+end
 
 function drawGame()
 	love.graphics.circle("line", player.x, player.y, player.radius, 10)
@@ -304,10 +414,62 @@ function drawGame()
 	
 	for i=1,#playerProjectiles do 
 		love.graphics.circle("fill", playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 32)
+		love.graphics.line(
+		playerProjectiles[i].x, 
+		playerProjectiles[i].y, 
+		playerProjectiles[i].x+playerProjectiles[i].vx, 
+		playerProjectiles[i].y+playerProjectiles[i].vy)
 	end
 	
+	
+	
+	-- visualizing the projections needed to check if an enemy is going to be hit by a bullet 
+	for j=#enemies,1,-1 do 
+		love.graphics.circle("line", enemies[j].x, enemies[j].y, enemies[j].dodgeRadius, 32)
+		for i=#playerProjectiles,1,-1 do 
+			
+			-- if an enemy can dodge a bullet 
+			-- http://stackoverflow.com/questions/1073336/circle-line-segment-collision-detection-algorithm
+			if circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
+				enemies[j].x, enemies[j].y, enemies[j].dodgeRadius) then 
+				
+				
+				bulletToCircleX = enemies[j].x - playerProjectiles[i].x
+				bulletToCircleY = enemies[j].y - playerProjectiles[i].y
+				love.graphics.setColor(255,0,0)
+				love.graphics.line(playerProjectiles[i].x, playerProjectiles[i].y, enemies[j].x, enemies[j].y)
+				resetColor()
+				
+				local planeX = playerProjectiles[i].vx
+				local planeY = playerProjectiles[i].vy
+				
+				-- project the vector of the distance from the bullet to the enemy 
+				-- onto the bullet's velocity 
+				local dot = (bulletToCircleX * planeX) + (bulletToCircleY * planeY)			
+				local proj = dot / ((planeX*planeX) + (planeY*planeY))
+				local projX = playerProjectiles[i].x + (planeX * proj )
+				local projY = playerProjectiles[i].y + (planeY * proj )
+				
+				love.graphics.setColor(255,255,0)
+				love.graphics.line(projX, projY, enemies[j].x, enemies[j].y)
+				love.graphics.setColor(0,255,0)
+				love.graphics.line(projX, projY, playerProjectiles[i].x , playerProjectiles[i].y)
+				resetColor()
+				
+
+			end 	
+		end
+	end 
+	
+	
+	
 	for i=1,#enemies do 
+		if enemies[i].dodgeInvincibility then 
+			love.graphics.setColor(255,255,0)
+		end 
 		love.graphics.circle("fill", enemies[i].x, enemies[i].y, enemies[i].radius, 32)
+		resetColor()
+			
 		if enemies[i].currentHealth > 0 then 
 			love.graphics.rectangle("fill", enemies[i].x, enemies[i].y - enemies[i].radius - 15, enemies[i].currentHealth / enemies[i].maxHealth * 100, 10)
 		else 
@@ -336,7 +498,7 @@ function drawGame()
 	
 	--love.graphics.print(angle, 0, 10)
 	--love.graphics.print("active player projectile count: "..tostring(#playerProjectiles), 0, 10)
-	love.graphics.print("particle count: "..tostring(#particles), 0, 10)
+	-- love.graphics.print("particle count: "..tostring(#particles), 0, 10)
 end
 
 
