@@ -43,7 +43,21 @@ function newPlayerProjectile(_x,_y, _vx, _vy)
 	radius = 10}
 end
 
-particles = {}
+local playerMissiles = {}
+function newPlayerMissile(_x,_y, _vx, _vy, id)
+	return {
+	x = _x, 
+	y = _y, 
+	vx = _vx, 
+	vy = _vy,
+	targetID = id, 
+	radius = 10, 
+	missileTimer =  Timer:new(0.2, TimerModes.repeating),
+	explosionTimer = Timer:new(1, TimerModes.single)}
+end
+
+
+local particles = {}
 function addParticleExplosion(_x,_y)
 	for i=1,300 do 
 		local _vx = 0 
@@ -191,6 +205,11 @@ function loadGame()
 	love.mouse.setVisible(false)
 end
 
+
+
+local missilePrimed=false 
+local nextMissileTargetId = nil 
+
 function updateGame(dt)	
 	mx, my = love.mouse.getPosition()
 	
@@ -248,6 +267,28 @@ function updateGame(dt)
 	-- add playerProjectiles end 
 	
 	
+	
+	-- add player missile start
+	if mMouseDown then 
+		mMouseDown = false
+		if missilePrimed then 
+			missilePrimed = false 
+			table.insert(playerMissiles, newPlayerMissile(player.x, player.y, 0, 1000, nextMissileTargetId))
+		else 
+			for i=#enemies,1,-1 do 
+				local mag = math.sqrt(math.pow(mx - enemies[i].x, 2) + math.pow(my - enemies[i].y, 2))
+				if mag <= enemies[i].radius then 
+					nextMissileTargetId = enemies[i].id
+					missilePrimed = true 
+					break
+				end 
+			end 
+		end 
+	end 
+	-- add player missile end 
+	
+	
+	
 	-- melee start 
 	if rMouseDown and not player.meleeActive then 
 		rMouseDown = false
@@ -277,19 +318,60 @@ function updateGame(dt)
 	
 	
 	
+	-- udpate playerMissiles start 
+	for i=#playerMissiles,1,-1 do 
+	
+		if playerMissiles[i].explosionTimer:isComplete(dt) then 
+			addParticleExplosion(playerMissiles[i].x, playerMissiles[i].y)
+			table.remove(playerMissiles, i)
+		else 	
+			-- get target position 
+			local targetX = 0 
+			local targetY = 0 
+			for j=#enemies,1,-1 do  
+				if enemies[j].id == playerMissiles[i].targetID then 
+					targetX = enemies[j].x 
+					targetY = enemies[j].y
+					break
+				end 
+			end 
+			
+			local vecX = (targetX - playerMissiles[i].x) 
+			local vecY = (targetY - playerMissiles[i].y) 
+			
+			local destX = vecX / magnitude(vecX, vecY)
+			local destY = vecY / magnitude(vecX, vecY)
+			
+			-- move 
+			if playerMissiles[i].missileTimer:isComplete(dt) then 
+				playerMissiles[i].vx = (destX*magnitude(playerMissiles[i].vx, playerMissiles[i].vy))
+				playerMissiles[i].vy = (destY*magnitude(playerMissiles[i].vx, playerMissiles[i].vy))
+			end 
+			playerMissiles[i].vx = playerMissiles[i].vx+(destX*50)
+			playerMissiles[i].vy = playerMissiles[i].vy+(destY*50)
+			playerMissiles[i].x = playerMissiles[i].x + (playerMissiles[i].vx * dt)
+			playerMissiles[i].y = playerMissiles[i].y + (playerMissiles[i].vy * dt)
+			--remove out of bounds  
+			--[[if  playerMissiles[i].x - playerMissiles[i].radius > screenWidth or playerMissiles[i].x + playerMissiles[i].radius < 0 or 
+				playerMissiles[i].y - playerMissiles[i].radius > screenHeight or playerMissiles[i].y + playerMissiles[i].radius < 0 then  			
+				table.remove(playerMissiles, i)
+			end]]
+		end 
+	end
+	-- update player missiles end 
+	
+	
+	
 	-- bullet enemy collision start 
 	for j=#enemies,1,-1 do 
 		for i=#playerProjectiles,1,-1 do 
-		
-
-			
-			-- if an enemy can dodge a bullet 
-			-- instead of just projecting the velocity (straight line / the path it travels)
-			-- should also project a line left and right at the edges of the projectile 
-			
+	
 			-- instead of randomly dodging left or right, it should assess how much space it has 
 			-- if left/right isn't an option, dodge forward.
 			-- when melee-ing player it should also be able to dodge back 
+			
+			-- took out invincibility frames for now as that makes it completely op for now 
+			-- could mess with chance to dodge and balance
 			
 			if circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
 				enemies[j].x, enemies[j].y, enemies[j].dodgeRadius) then 
@@ -326,8 +408,14 @@ function updateGame(dt)
 				local dodgeChance = math.random(0,100)
 				
 				if not enemies[j].dodgeInvincibility and (centreLine or normal1 or normal2) and dodgeChance>75 then 
-					enemies[j].dodgeInvincibility = false 
-					enemies[j].dodgeTimer = Timer:new(0.3, TimerModes.single)
+					enemies[j].dodgeInvincibility = true 
+					enemies[j].dodgeTimer = Timer:new(0.1, TimerModes.single)
+					
+					
+					-- so to change this it should be 
+					-- if normal 1 hit, dodge based on that 
+					-- if normal 2 hit, dodge based on that 
+					-- if centreline hit, random 
 					
 					if math.random(1,2) == 1 then 
 						enemies[j].vx = playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
@@ -354,6 +442,24 @@ function updateGame(dt)
 
 			
 		end
+		
+		
+		
+		for i=#playerMissiles,1,-1 do 
+			if circleCircleCollision(playerMissiles[i].x, playerMissiles[i].y, playerMissiles[i].radius, 
+				enemies[j].x, enemies[j].y, enemies[j].radius) then 
+				
+				enemies[j].vx = enemies[j].vx + playerMissiles[i].vx * dt 
+				enemies[j].vy = enemies[j].vy + playerMissiles[i].vy * dt
+				enemies[j].currentHealth = enemies[j].currentHealth - 5 
+				if enemies[j].currentHealth < 0 then enemies[j].currentHealth = 0 end 
+				addParticleExplosion(playerMissiles[i].x, playerMissiles[i].y)
+				table.remove(playerMissiles, i)
+			end 
+		end
+		
+		
+		
 	end 
 	-- bullet enemy collision end 
 	
@@ -446,6 +552,7 @@ function drawGame()
 	love.graphics.circle("line", player.x, player.y, player.radius, 10)
 	love.graphics.line(player.x, player.y, mx, my)
 	
+	-- this is all debug information
 	for i=1,#playerProjectiles do 
 		love.graphics.circle("fill", playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 32)
 		love.graphics.line(
@@ -481,10 +588,10 @@ function drawGame()
 		resetColor()
 		
 	end
-	
-	
+
 	
 	-- visualizing the projections needed to check if an enemy is going to be hit by a bullet 
+	-- this is all debug information
 	for j=#enemies,1,-1 do 
 		love.graphics.circle("line", enemies[j].x, enemies[j].y, enemies[j].dodgeRadius, 32)
 		for i=#playerProjectiles,1,-1 do 
@@ -552,11 +659,33 @@ function drawGame()
 		--love.graphics.circle("fill", player.x + (player.radius * math.cos(angle)), player.y + (player.radius * math.sin(angle)), player.radius, 23)
 	end
 	
+	
+	
+	
+	for i=1,#playerMissiles do 
+		love.graphics.circle("fill", playerMissiles[i].x, playerMissiles[i].y, playerMissiles[i].radius, 32)
+		
+		for j=#enemies,1,-1 do 	
+			if enemies[j].id == playerMissiles[i].targetID then 
+				love.graphics.setColor(255,50,50)
+				love.graphics.circle("line", enemies[j].x, enemies[j].y, enemies[j].radius, 32)
+				love.graphics.line(enemies[j].x - enemies[j].radius, enemies[j].y, enemies[j].x + enemies[j].radius, enemies[j].y)
+				love.graphics.line(enemies[j].x, enemies[j].y - enemies[j].radius, enemies[j].x, enemies[j].y + enemies[j].radius)
+				resetColor()
+			end 
+		end
+		
+	end 
+	
 	for i=1,#particles do 
 		love.graphics.setColor(200, 200, 200, particles[i].alpha)
 		love.graphics.circle("fill", particles[i].x, particles[i].y, particles[i].radius, 5)
 		love.graphics.setColor(255,255,255)
 	end 
+	
+	
+	
+	
 	
 	--love.graphics.print(angle, 0, 10)
 	--love.graphics.print("active player projectile count: "..tostring(#playerProjectiles), 0, 10)

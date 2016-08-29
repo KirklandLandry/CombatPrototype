@@ -54,12 +54,16 @@ end
 
 lMouseDown = false
 rMouseDown = false
+mMouseDown = false
 function love.mousepressed(x, y, button)
     if button == 'l' then
 		lMouseDown = true 
     end 
 	if button == 'r' then 
 		rMouseDown = true 
+	end 
+	if button == 'm' then 
+		mMouseDown = true 
 	end 
 end
 
