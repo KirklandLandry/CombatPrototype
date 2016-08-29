@@ -116,6 +116,29 @@ end
 end]]
 
 
+function lineCircleIntersection(bulletX, bulletY, bulletVX, bulletVY, enemyX, enemyY, enemyRadius)
+	-- get the distance from the bullet to the enemy 
+	bulletToCircleX = enemyX - bulletX
+	bulletToCircleY = enemyY - bulletY
+	
+	-- temp variables for the velocity vector
+	local planeX = bulletVX
+	local planeY = bulletVY
+	
+	-- project the vector of the distance from the bullet to the enemy 
+	-- onto the bullet's velocity 
+	local dot = (bulletToCircleX * planeX) + (bulletToCircleY * planeY)			
+	local proj = dot / ((planeX*planeX) + (planeY*planeY))
+	local projX = bulletX + (planeX * proj )
+	local projY = bulletY + (planeY * proj )
+	
+	-- if the projected point is less than the enemies radius then the 
+	-- bullet is going to hit the enemy 
+	local dist = magnitude(enemyX - projX, enemyY - projY)
+	
+	if dist <= enemyRadius then return true else return false end 
+end 
+
 function circleWallCollision(x,y,radius,vx,vy)
 	local result = {
 	x = 0,
@@ -271,29 +294,40 @@ function updateGame(dt)
 			if circleCircleCollision(playerProjectiles[i].x, playerProjectiles[i].y, playerProjectiles[i].radius, 
 				enemies[j].x, enemies[j].y, enemies[j].dodgeRadius) then 
 				
-				-- get the distance from the bullet to the enemy 
-				bulletToCircleX = enemies[j].x - playerProjectiles[i].x
-				bulletToCircleY = enemies[j].y - playerProjectiles[i].y
 				
-				-- temp variables for the velocity vector
-				local planeX = playerProjectiles[i].vx
-				local planeY = playerProjectiles[i].vy
+				local centreLine = lineCircleIntersection(
+				playerProjectiles[i].x, playerProjectiles[i].y, 
+				playerProjectiles[i].vx, playerProjectiles[i].vy, 
+				enemies[j].x, enemies[j].y, enemies[j].radius)
 				
-				-- project the vector of the distance from the bullet to the enemy 
-				-- onto the bullet's velocity 
-				local dot = (bulletToCircleX * planeX) + (bulletToCircleY * planeY)			
-				local proj = dot / ((planeX*planeX) + (planeY*planeY))
-				local projX = playerProjectiles[i].x + (planeX * proj )
-				local projY = playerProjectiles[i].y + (planeY * proj )
 				
-				-- if the projected point is less than the enemies radius then the 
-				-- bullet is going to hit the enemy 
-				local dist = magnitude(enemies[j].x - projX, enemies[j].y - projY)
-			
+				local normalX = playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)
+				local normalY = -playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)	
+				local shiftX = normalX * playerProjectiles[i].radius 
+				local shiftY = normalY * playerProjectiles[i].radius 
 				
-				if not enemies[j].dodgeInvincibility and  dist <= enemies[j].radius then 
-					enemies[j].dodgeInvincibility = true 
-					enemies[j].dodgeTimer = Timer:new(0.12, TimerModes.single)
+				local normal1 = lineCircleIntersection(
+				shiftX+playerProjectiles[i].x, shiftY+playerProjectiles[i].y, 
+				shiftX+playerProjectiles[i].vx, shiftY+playerProjectiles[i].vy, 
+				enemies[j].x, enemies[j].y, enemies[j].radius)
+				
+				
+				normalX = -playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)
+				normalY = playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)	
+				shiftX = normalX * playerProjectiles[i].radius 
+				shiftY = normalY * playerProjectiles[i].radius 
+				
+				local normal2 = lineCircleIntersection(
+				shiftX+playerProjectiles[i].x, shiftY+playerProjectiles[i].y, 
+				shiftX+playerProjectiles[i].vx, shiftY+playerProjectiles[i].vy, 
+				enemies[j].x, enemies[j].y, enemies[j].radius)
+				
+
+				local dodgeChance = math.random(0,100)
+				
+				if not enemies[j].dodgeInvincibility and (centreLine or normal1 or normal2) and dodgeChance>75 then 
+					enemies[j].dodgeInvincibility = false 
+					enemies[j].dodgeTimer = Timer:new(0.3, TimerModes.single)
 					
 					if math.random(1,2) == 1 then 
 						enemies[j].vx = playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy) * 20
@@ -419,6 +453,33 @@ function drawGame()
 		playerProjectiles[i].y, 
 		playerProjectiles[i].x+playerProjectiles[i].vx, 
 		playerProjectiles[i].y+playerProjectiles[i].vy)
+		
+		local normalX = playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)
+		local normalY = -playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)	
+		local shiftX = normalX * playerProjectiles[i].radius 
+		local shiftY = normalY * playerProjectiles[i].radius 
+				
+		love.graphics.setColor(0,0,255)
+		love.graphics.line(
+		shiftX+(playerProjectiles[i].x), 
+		shiftY+(playerProjectiles[i].y), 
+		shiftX+(playerProjectiles[i].x+playerProjectiles[i].vx), 
+		shiftY+(playerProjectiles[i].y+playerProjectiles[i].vy))
+		resetColor()
+		
+		normalX = -playerProjectiles[i].vy / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)
+		normalY = playerProjectiles[i].vx / magnitude(playerProjectiles[i].vx, playerProjectiles[i].vy)	
+		shiftX = normalX * playerProjectiles[i].radius 
+		shiftY = normalY * playerProjectiles[i].radius 
+				
+		love.graphics.setColor(0,0,150)
+		love.graphics.line(
+		shiftX+(playerProjectiles[i].x), 
+		shiftY+(playerProjectiles[i].y), 
+		shiftX+(playerProjectiles[i].x+playerProjectiles[i].vx), 
+		shiftY+(playerProjectiles[i].y+playerProjectiles[i].vy))
+		resetColor()
+		
 	end
 	
 	
@@ -452,6 +513,7 @@ function drawGame()
 				
 				love.graphics.setColor(255,255,0)
 				love.graphics.line(projX, projY, enemies[j].x, enemies[j].y)
+				
 				love.graphics.setColor(0,255,0)
 				love.graphics.line(projX, projY, playerProjectiles[i].x , playerProjectiles[i].y)
 				resetColor()
